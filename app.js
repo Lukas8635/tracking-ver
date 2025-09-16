@@ -1,13 +1,96 @@
 const { chromium } = require('playwright');
+const { google } = require('googleapis');
+const fs = require('fs');
+const path = require('path');
 
-// Array of websites to analyze
-const websites = [
-  "https://7bet.lt/",
-  "https://pegasas.lt/",
-  "https://www.topocentras.lt/",
-  "https://www.evolvery.com/"
+// Load configuration
+let config;
+try {
+  config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+} catch (error) {
+  console.error('❌ Error loading config.json:', error.message);
+  console.log('📝 Please create a config.json file or check the file format.');
+  process.exit(1);
+}
 
-];
+const websites = config.websites;
+
+// -------- Google Sheets helpers (lazy) --------
+const streamMode = config.googleSheets && (config.googleSheets.stream === undefined ? true : !!config.googleSheets.stream);
+let cachedSheetsClient = null;
+let headerInitialized = false;
+
+async function getSheetsClient() {
+  if (!config.googleSheets.enabled) return null;
+  if (cachedSheetsClient) return cachedSheetsClient;
+  const auth = new google.auth.GoogleAuth({
+    keyFile: config.googleSheets.credentialsFile,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  cachedSheetsClient = google.sheets({ version: 'v4', auth });
+  return cachedSheetsClient;
+}
+
+function getA1SheetName(name) {
+  const escaped = String(name || '').replace(/'/g, "''");
+  return `'${escaped}'`;
+}
+
+async function ensureHeaderRow() {
+  const sheets = await getSheetsClient();
+  if (!sheets || headerInitialized) return;
+  const sheetA1 = getA1SheetName(config.googleSheets.sheetName);
+  try {
+    const existing = await sheets.spreadsheets.values.get({
+      spreadsheetId: config.googleSheets.spreadsheetId,
+      range: `${sheetA1}!A1:A1`,
+    });
+    const hasHeader = Array.isArray(existing.data.values) && existing.data.values.length > 0;
+    if (!hasHeader) {
+      const headers = [
+        'Website','Status','GTM Containers','GTM IDs','GA4 IDs','Consent Mode','Consent Tool','Tracking Type','GTM Immediate Load','Cookieless Hits','Network Requests','Error Message','Analysis Date'
+      ];
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: config.googleSheets.spreadsheetId,
+        range: `${sheetA1}!A1`,
+        valueInputOption: 'RAW',
+        resource: { values: [headers] }
+      });
+    }
+    headerInitialized = true;
+  } catch (e) {
+    // Ignore; export at end will report if necessary
+  }
+}
+
+async function appendResultRow(result) {
+  const sheets = await getSheetsClient();
+  if (!sheets) return;
+  await ensureHeaderRow();
+  const sheetA1 = getA1SheetName(config.googleSheets.sheetName);
+  const row = [
+    result.website,
+    result.error ? 'Error' : 'Success',
+    result.gtmIds ? result.gtmIds.length : 0,
+    result.gtmIds ? result.gtmIds.join(', ') : 'None',
+    result.ga4Ids ? result.ga4Ids.join(', ') : 'None',
+    result.consentMode ? `${result.consentMode.detected ? 'Yes' : 'No'} ${result.consentMode.version}` : 'Unknown',
+    result.consentMode ? result.consentMode.tool : 'Unknown',
+    result.trackingType || 'Unknown',
+    result.gtmLoadedInitially ? 'Yes' : 'No',
+    result.gaCookielessHits ? 'Yes' : 'No',
+    result.networkRequests || 0,
+    result.error || '',
+    new Date().toISOString()
+  ];
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: config.googleSheets.spreadsheetId,
+    range: `${sheetA1}!A:A`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    resource: { values: [row] },
+  });
+}
 
 async function analyzeWebsite(browser, website) {
   console.log(`\n${'='.repeat(80)}`);
@@ -288,7 +371,7 @@ async function analyzeWebsite(browser, website) {
     // Navigate with network monitoring
     const response = await page.goto(website, { 
       waitUntil: 'load', 
-      timeout: 120000 // 2 minutes timeout
+      timeout: config.analysis.timeout
     });
     
     console.log(`✅ Page loaded (Status: ${response.status()}), waiting for additional requests...`);
@@ -334,7 +417,7 @@ async function analyzeWebsite(browser, website) {
      
      // Wait longer to capture more dynamic requests
      console.log("⏳ Waiting for additional tracking requests...");
-     await page.waitForTimeout(15000); // 15 seconds
+     await page.waitForTimeout(config.analysis.waitTime);
      
            // Also try to detect GTM containers from the page content and dataLayer
       pageContent = await page.content();
@@ -1027,7 +1110,7 @@ async function analyzeWebsite(browser, website) {
   console.log(`📝 Analyzing ${websites.length} websites`);
   
   const browser = await chromium.launch({
-    headless: true,
+    headless: config.analysis.headless,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -1046,6 +1129,15 @@ async function analyzeWebsite(browser, website) {
   for (const website of websites) {
     const result = await analyzeWebsite(browser, website);
     results.push(result);
+    // Stream to Google Sheets after each website
+    if (config.googleSheets.enabled && streamMode) {
+      try {
+        await appendResultRow(result);
+        console.log(`📤 Exported partial result to Google Sheets: ${website}`);
+      } catch (e) {
+        console.error(`❌ Failed streaming result for ${website}: ${e.message}`);
+      }
+    }
   }
 
   await browser.close();
@@ -1080,4 +1172,107 @@ async function analyzeWebsite(browser, website) {
   });
 
   console.log(`\n✅ Analysis completed for all ${websites.length} websites!`);
+
+  // Export to Google Sheets in batch if streaming is disabled
+  if (config.googleSheets.enabled && !streamMode) {
+    try {
+      await exportToGoogleSheets(results);
+      console.log(`📊 Results exported to Google Sheets successfully!`);
+    } catch (error) {
+      console.error(`❌ Error exporting to Google Sheets: ${error.message}`);
+    }
+  }
 })();
+
+// Google Sheets integration function
+async function exportToGoogleSheets(results) {
+  if (!config.googleSheets.spreadsheetId) {
+    throw new Error('Google Sheets Spreadsheet ID not configured');
+  }
+
+  // Authenticate with Google Sheets API
+  const auth = new google.auth.GoogleAuth({
+    keyFile: config.googleSheets.credentialsFile,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+
+  const sheets = google.sheets({ version: 'v4', auth });
+
+  // Prepare data for export
+  const getA1SheetName = (name) => {
+    const escaped = String(name || '').replace(/'/g, "''");
+    return `'${escaped}'`;
+  };
+  const sheetA1 = getA1SheetName(config.googleSheets.sheetName);
+  const headers = [
+    'Website',
+    'Status',
+    'GTM Containers',
+    'GTM IDs',
+    'GA4 IDs',
+    'Consent Mode',
+    'Consent Tool',
+    'Tracking Type',
+    'GTM Immediate Load',
+    'Cookieless Hits',
+    'Network Requests',
+    'Error Message',
+    'Analysis Date'
+  ];
+
+  const rows = results.map(result => [
+    result.website,
+    result.error ? 'Error' : 'Success',
+    result.gtmIds ? result.gtmIds.length : 0,
+    result.gtmIds ? result.gtmIds.join(', ') : 'None',
+    result.ga4Ids ? result.ga4Ids.join(', ') : 'None',
+    result.consentMode ? `${result.consentMode.detected ? 'Yes' : 'No'} ${result.consentMode.version}` : 'Unknown',
+    result.consentMode ? result.consentMode.tool : 'Unknown',
+    result.trackingType || 'Unknown',
+    result.gtmLoadedInitially ? 'Yes' : 'No',
+    result.gaCookielessHits ? 'Yes' : 'No',
+    result.networkRequests || 0,
+    result.error || '',
+    new Date().toISOString()
+  ]);
+
+  const values = [headers, ...rows];
+
+  // Clear existing data and add new data
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: config.googleSheets.spreadsheetId,
+    range: `${sheetA1}!A:Z`,
+  });
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: config.googleSheets.spreadsheetId,
+    range: `${sheetA1}!A1`,
+    valueInputOption: 'RAW',
+    resource: {
+      values: values,
+    },
+  });
+
+  // Format the header row
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: config.googleSheets.spreadsheetId,
+    resource: {
+      requests: [{
+        repeatCell: {
+          range: {
+            sheetId: 0,
+            startRowIndex: 0,
+            endRowIndex: 1,
+          },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.2, green: 0.4, blue: 0.8 },
+              textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        },
+      }],
+    },
+  });
+}

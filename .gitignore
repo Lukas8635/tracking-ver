@@ -118,4 +118,4 @@ Thumbs.db
 # Analysis output files (optional - you can remove these lines if you want to track output)
 analysis-results.txt
 summary.txt
-*.output 
+*.output credentials.json

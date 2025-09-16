@@ -1,0 +1,20 @@
+{
+  "websites": [
+    "https://7bet.lt/",
+    "https://pegasas.lt/",
+    "https://www.topocentras.lt/",
+    "https://www.evolvery.com/"
+  ],
+  "googleSheets": {
+    "enabled": true,
+    "stream": true,
+    "spreadsheetId": "1GDUn3VDIX4bR97kfRTX89LwAVSJlkDfAS6HLyx9OmPA",
+    "sheetName": "GTM tracking",
+    "credentialsFile": "credentials.json"
+  },
+  "analysis": {
+    "timeout": 120000,
+    "waitTime": 15000,
+    "headless": true
+  }
+}

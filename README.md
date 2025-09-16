@@ -34,6 +34,12 @@ A comprehensive Node.js application that analyzes Google Tag Manager (GTM) and G
 - **Error Monitoring** - Tracks console errors and failed requests
 - **Detailed Logging** - Comprehensive output with emoji-enhanced readability
 
+### 📊 **Google Sheets Integration**
+- **Automatic Export** - Results automatically exported to Google Sheets
+- **Structured Data** - Organized columns for easy analysis and reporting
+- **Historical Tracking** - Timestamped results for trend analysis
+- **Team Collaboration** - Share results with stakeholders easily
+
 ## 🛠️ Prerequisites
 
 - **Node.js** (version 14 or higher)
@@ -71,23 +77,58 @@ node app.js --timeout=180000
 
 ### **Adding Websites to Analyze**
 
-Edit the `websites` array in `app.js` (lines 4-8):
+Edit the `websites` array in `config.json`:
 
-```javascript
-const websites = [
-  "https://your-website.com/",
-  "https://another-site.com/",
-  "https://example.com/"
-];
+```json
+{
+  "websites": [
+    "https://your-website.com/",
+    "https://another-site.com/",
+    "https://example.com/"
+  ]
+}
 ```
+
+### **Google Sheets Integration**
+
+Enable automatic export to Google Sheets:
+
+```bash
+npm run setup-sheets
+```
+
+Or manually configure in `config.json`:
+
+```json
+{
+  "googleSheets": {
+    "enabled": true,
+    "spreadsheetId": "your-google-sheets-id",
+    "sheetName": "GTM Analysis Results",
+    "credentialsFile": "credentials.json"
+  }
+}
+```
+
+See [GOOGLE_SHEETS_SETUP.md](GOOGLE_SHEETS_SETUP.md) for detailed setup instructions.
 
 ### **Adjusting Analysis Settings**
 
-You can modify these parameters in the `analyzeWebsite` function:
+Modify these parameters in `config.json`:
 
-- **Timeout**: Change `timeout: 120000` (line ~280) for slower sites
-- **Wait Time**: Modify `waitForTimeout(15000)` (line ~320) for more thorough analysis
-- **Browser Settings**: Adjust user agent and viewport in the `newContext` call
+```json
+{
+  "analysis": {
+    "timeout": 120000,
+    "waitTime": 15000,
+    "headless": true
+  }
+}
+```
+
+- **timeout**: Page load timeout in milliseconds
+- **waitTime**: Additional wait time for tracking requests
+- **headless**: Run browser in headless mode (true/false)
 
 ## 📋 What the Tool Analyzes
 

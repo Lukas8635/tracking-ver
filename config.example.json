@@ -1,0 +1,19 @@
+{
+  "websites": [
+    "https://example1.com/",
+    "https://example2.com/",
+    "https://example3.com/"
+  ],
+  "googleSheets": {
+    "enabled": false,
+    "stream": true,
+    "spreadsheetId": "your-google-sheets-id-here",
+    "sheetName": "GTM Analysis Results",
+    "credentialsFile": "credentials.json"
+  },
+  "analysis": {
+    "timeout": 120000,
+    "waitTime": 15000,
+    "headless": true
+  }
+}
