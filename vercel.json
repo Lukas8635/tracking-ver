@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "vercel-server.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/",
+      "dest": "/vercel-server.js"
+    },
+    {
+      "src": "/analyze",
+      "dest": "/vercel-server.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/vercel-server.js"
+    }
+  ],
+  "functions": {
+    "vercel-server.js": {
+      "maxDuration": 300
+    }
+  }
+}

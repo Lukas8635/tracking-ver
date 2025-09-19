@@ -40,6 +40,16 @@ A comprehensive Node.js application that analyzes Google Tag Manager (GTM) and G
 - **Historical Tracking** - Timestamped results for trend analysis
 - **Team Collaboration** - Share results with stakeholders easily
 
+### 🌐 **Web UI Interface**
+- **Modern Interface** - Clean, responsive web application
+- **Multiple URL Support** - Analyze one or multiple websites at once
+- **Flexible Input** - Enter URLs separated by commas or new lines
+- **Google Sheets Integration** - Results automatically added to your Google Sheets
+- **Real-time Analysis** - Live progress tracking during analysis
+- **Detailed Results Display** - See analysis results directly in the web interface
+- **Batch Processing** - Efficiently analyze multiple sites in sequence
+- **Mobile Friendly** - Works on desktop, tablet, and mobile devices
+
 ## 🛠️ Prerequisites
 
 - **Node.js** (version 14 or higher)
@@ -59,7 +69,15 @@ A comprehensive Node.js application that analyzes Google Tag Manager (GTM) and G
 
 ## 🎯 How to Run
 
-### **Quick Start**
+### **🌐 Web UI (Recommended)**
+Launch the modern web interface for easy URL input and Excel export:
+```bash
+npm run web
+```
+Then open your browser and go to: `http://localhost:3000`
+
+### **📊 Command Line Analysis**
+Analyze websites from the configuration file:
 ```bash
 npm start
 ```

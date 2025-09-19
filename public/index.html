@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GTM & GA4 Tracking Analysis Tool</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2rem;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1rem;
+            line-height: 1.5;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+            text-align: left;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 1rem;
+        }
+
+        input[type="url"], textarea {
+            width: 100%;
+            padding: 15px 20px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
+            font-family: inherit;
+            resize: vertical;
+        }
+
+        input[type="url"]:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .analyze-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .analyze-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .analyze-btn:active {
+            transform: translateY(0);
+        }
+
+        .analyze-btn:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            margin-top: 20px;
+            color: #667eea;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .features {
+            margin-top: 40px;
+            text-align: left;
+        }
+
+        .features h3 {
+            color: #333;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .feature {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .feature strong {
+            color: #667eea;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            border-left: 4px solid #c33;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .success {
+            background: #efe;
+            color: #363;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            border-left: 4px solid #363;
+            display: none;
+        }
+
+        .success.show {
+            display: block;
+        }
+
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e1e5e9;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                padding: 30px 20px;
+            }
+            
+            h1 {
+                font-size: 1.5rem;
+            }
+            
+            .logo {
+                font-size: 2.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🔍</div>
+        <h1>GTM & GA4 Tracking Analysis</h1>
+        <p class="subtitle">
+            Analyze any website's Google Tag Manager and Google Analytics 4 implementation. 
+            Results are automatically added to your Google Sheets for easy tracking and analysis.
+        </p>
+
+        <form id="analysisForm">
+            <div class="form-group">
+                <label for="websiteUrls">Website URLs to Analyze:</label>
+                <textarea 
+                    id="websiteUrls" 
+                    name="websiteUrls" 
+                    placeholder="Enter one or more URLs (one per line or separated by commas):&#10;&#10;https://example.com&#10;https://another-site.com&#10;https://third-website.com" 
+                    rows="6"
+                    required
+                ></textarea>
+                <small style="color: #666; font-size: 0.9rem; margin-top: 5px; display: block;">
+                    💡 You can enter multiple URLs - one per line or separated by commas
+                </small>
+            </div>
+            
+            <button type="submit" class="analyze-btn" id="analyzeBtn">
+                🔍 Analyze Websites & Add to Google Sheets
+            </button>
+        </form>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p id="loadingMessage">Analyzing website... This may take 30-60 seconds</p>
+            <p style="font-size: 0.9rem; color: #999; margin-top: 10px;">
+                We're scanning for GTM containers, GA4 tracking, consent tools, and more...
+            </p>
+        </div>
+
+        <div class="error" id="error"></div>
+        <div class="success" id="success"></div>
+
+    </div>
+
+    <script>
+        document.getElementById('analysisForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const urlsText = document.getElementById('websiteUrls').value.trim();
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            const success = document.getElementById('success');
+            
+            // Parse URLs from input (support both comma-separated and line-separated)
+            const urls = urlsText
+                .split(/[,\n]/)
+                .map(url => url.trim())
+                .filter(url => url.length > 0);
+            
+            if (urls.length === 0) {
+                error.textContent = 'Please enter at least one valid URL';
+                error.classList.add('show');
+                success.classList.remove('show');
+                return;
+            }
+            
+            // Validate all URLs
+            const invalidUrls = [];
+            for (const url of urls) {
+                try {
+                    new URL(url);
+                } catch (e) {
+                    invalidUrls.push(url);
+                }
+            }
+            
+            if (invalidUrls.length > 0) {
+                error.textContent = `Invalid URLs found: ${invalidUrls.join(', ')}. Please check your input.`;
+                error.classList.add('show');
+                success.classList.remove('show');
+                return;
+            }
+            
+            // Show loading state
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = `⏳ Analyzing ${urls.length} website${urls.length > 1 ? 's' : ''}...`;
+            loading.classList.add('show');
+            error.classList.remove('show');
+            success.classList.remove('show');
+            
+            // Update loading message to show progress
+            const loadingMessage = document.getElementById('loadingMessage');
+            loadingMessage.textContent = `Analyzing ${urls.length} website${urls.length > 1 ? 's' : ''}... This may take ${urls.length * 30}-${urls.length * 60} seconds`;
+            
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ urls: urls })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Show success message with analysis results
+                    let successMessage = `<strong>✅ Analysis Complete!</strong><br><br>`;
+                    
+                    if (data.results && data.results.length > 1) {
+                        successMessage += `<strong>📊 Analyzed ${data.results.length} websites:</strong><br><br>`;
+                        
+                        data.results.forEach((result, index) => {
+                            successMessage += `<strong>${index + 1}. ${result.website}</strong><br>`;
+                            successMessage += `• GTM: ${result.analysis.gtmContainers} (${result.analysis.gtmIds.join(', ') || 'None'})<br>`;
+                            successMessage += `• GA4: ${result.analysis.ga4Ids.length} (${result.analysis.ga4Ids.join(', ') || 'None'})<br>`;
+                            successMessage += `• Consent: ${result.analysis.consentMode ? (result.analysis.consentMode.detected ? '✅ Yes' : '❌ No') : 'Unknown'}<br>`;
+                            successMessage += `• Tool: ${result.analysis.consentMode ? result.analysis.consentMode.tool : 'Unknown'}<br>`;
+                            successMessage += `• Type: ${result.analysis.trackingType || 'Unknown'}<br>`;
+                            if (result.error) {
+                                successMessage += `• ⚠️ Error: ${result.error}<br>`;
+                            }
+                            successMessage += `<br>`;
+                        });
+                        
+                        // Add Google Sheets status
+                        if (data.googleSheets.enabled) {
+                            const successCount = data.results.filter(r => r.googleSheets && r.googleSheets.success).length;
+                            const totalCount = data.results.length;
+                            successMessage += `<strong>📊 Google Sheets:</strong> ${successCount}/${totalCount} results added to your spreadsheet!<br>`;
+                        } else {
+                            successMessage += `<strong>📊 Google Sheets:</strong> ⚠️ Not configured<br>`;
+                        }
+                        
+                    } else {
+                        // Single result (backward compatibility)
+                        const result = data.results ? data.results[0] : data;
+                        successMessage += `Website: <strong>${result.website}</strong><br><br>`;
+                        successMessage += `<strong>📊 Analysis Results:</strong><br>`;
+                        successMessage += `• GTM Containers: ${result.analysis.gtmContainers} (${result.analysis.gtmIds.join(', ') || 'None'})<br>`;
+                        successMessage += `• GA4 IDs: ${result.analysis.ga4Ids.length} (${result.analysis.ga4Ids.join(', ') || 'None'})<br>`;
+                        successMessage += `• Consent Mode: ${result.analysis.consentMode ? (result.analysis.consentMode.detected ? '✅ Yes (' + result.analysis.consentMode.version + ')' : '❌ No') : 'Unknown'}<br>`;
+                        successMessage += `• Consent Tool: ${result.analysis.consentMode ? result.analysis.consentMode.tool : 'Unknown'}<br>`;
+                        successMessage += `• Tracking Type: ${result.analysis.trackingType || 'Unknown'}<br>`;
+                        successMessage += `• Network Requests: ${result.analysis.networkRequests}<br><br>`;
+                        
+                        // Add Google Sheets status
+                        if (result.googleSheets && result.googleSheets.enabled) {
+                            if (result.googleSheets.success) {
+                                successMessage += `<strong>📊 Google Sheets:</strong> ✅ Successfully added to your spreadsheet!<br>`;
+                            } else {
+                                successMessage += `<strong>📊 Google Sheets:</strong> ❌ Failed to export (${result.googleSheets.error})<br>`;
+                            }
+                        } else {
+                            successMessage += `<strong>📊 Google Sheets:</strong> ⚠️ Not configured<br>`;
+                        }
+                        
+                        // Add error information if any
+                        if (result.error) {
+                            successMessage += `<br><strong>⚠️ Note:</strong> Analysis completed with errors: ${result.error}`;
+                        }
+                    }
+                    
+                    success.innerHTML = successMessage;
+                    success.classList.add('show');
+                    
+                    // Clear the form
+                    document.getElementById('websiteUrls').value = '';
+                    
+                } else {
+                    const errorData = await response.json();
+                    error.textContent = errorData.error || 'An error occurred during analysis';
+                    error.classList.add('show');
+                }
+                
+            } catch (err) {
+                error.textContent = 'Network error: ' + err.message;
+                error.classList.add('show');
+            } finally {
+            // Reset button state
+            analyzeBtn.disabled = false;
+            analyzeBtn.textContent = '🔍 Analyze Websites & Add to Google Sheets';
+            loading.classList.remove('show');
+            }
+        });
+        
+        // Auto-focus on URL input
+        document.getElementById('websiteUrls').focus();
+    </script>
+</body>
+</html>
