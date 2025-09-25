@@ -11,9 +11,8 @@
   },
   "dependencies": {
     "playwright": "^1.53.0",
-    "playwright-core": "^1.53.0",
     "chrome-aws-lambda": "^10.1.0",
-    "puppeteer-core": "^21.0.0",
+    "puppeteer-core": "^10.4.0",
     "googleapis": "^128.0.0",
     "google-auth-library": "^9.4.0",
     "express": "^4.18.2"

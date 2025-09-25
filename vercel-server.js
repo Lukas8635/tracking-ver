@@ -2,8 +2,13 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const puppeteer = require('puppeteer-core');
-const chromium = require('chrome-aws-lambda');
 const { google } = require('googleapis');
+
+// Import chromium only when needed
+let chromium;
+if (process.env.NODE_ENV === 'production') {
+  chromium = require('chrome-aws-lambda');
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -472,6 +477,11 @@ app.post('/analyze', async (req, res) => {
 
   try {
     // Launch browser with Vercel-compatible settings
+    let executablePath;
+    if (process.env.NODE_ENV === 'production' && chromium) {
+      executablePath = await chromium.executablePath;
+    }
+
     const browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -487,9 +497,7 @@ app.post('/analyze', async (req, res) => {
         '--disable-renderer-backgrounding',
         '--single-process'
       ],
-      executablePath: process.env.NODE_ENV === 'production' 
-        ? await chromium.executablePath 
-        : undefined
+      executablePath: executablePath
     });
 
     const results = [];
