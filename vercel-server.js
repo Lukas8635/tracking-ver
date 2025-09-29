@@ -477,12 +477,14 @@ app.post('/analyze', async (req, res) => {
 
   try {
     // Launch browser with Vercel-compatible settings
-    let executablePath;
-    if (process.env.NODE_ENV === 'production' && chromium) {
-      executablePath = await chromium.executablePath;
-    }
-
-    const browser = await puppeteer.launch({
+    const isProd = process.env.NODE_ENV === 'production' && chromium;
+    const launchOptions = isProd ? {
+      args: chromium.args,
+      executablePath: await chromium.executablePath,
+      headless: chromium.headless,
+      ignoreHTTPSErrors: true,
+      defaultViewport: { width: 1920, height: 1080 }
+    } : {
       headless: true,
       args: [
         '--no-sandbox',
@@ -497,8 +499,11 @@ app.post('/analyze', async (req, res) => {
         '--disable-renderer-backgrounding',
         '--single-process'
       ],
-      executablePath: executablePath
-    });
+      ignoreHTTPSErrors: true,
+      defaultViewport: { width: 1920, height: 1080 }
+    };
+
+    const browser = await puppeteer.launch(launchOptions);
 
     const results = [];
     let totalSheetsSuccess = 0;
