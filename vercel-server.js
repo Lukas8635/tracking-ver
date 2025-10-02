@@ -1,17 +1,8 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const puppeteer = require('puppeteer-core');
+const { chromium } = require('playwright');
 const { google } = require('googleapis');
-
-// Import chromium only when needed
-let chromium;
-if (process.env.NODE_ENV === 'production') {
-  // Use Node 22 compatible Chromium in serverless
-  chromium = require('@sparticuz/chromium');
-  chromium.setHeadlessMode = true;
-  chromium.setGraphicsMode = false;
-}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -135,7 +126,7 @@ async function appendResultRow(result) {
   });
 }
 
-// Analysis function using Puppeteer
+// Analysis function using Playwright
 async function analyzeWebsite(browser, website) {
   console.log(`\n${'='.repeat(80)}`);
   console.log(`🔍 ANALYZING: ${website}`);
@@ -480,15 +471,8 @@ app.post('/analyze', async (req, res) => {
   }
 
   try {
-    // Launch browser with Vercel-compatible settings
-    const isProd = process.env.NODE_ENV === 'production' && chromium;
-    const launchOptions = isProd ? {
-      args: chromium.args,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-      ignoreHTTPSErrors: true,
-      defaultViewport: { width: 1920, height: 1080 }
-    } : {
+    // Launch browser with Playwright (works better on Vercel)
+    const browser = await chromium.launch({
       headless: true,
       args: [
         '--no-sandbox',
@@ -502,12 +486,8 @@ app.post('/analyze', async (req, res) => {
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
         '--single-process'
-      ],
-      ignoreHTTPSErrors: true,
-      defaultViewport: { width: 1920, height: 1080 }
-    };
-
-    const browser = await puppeteer.launch(launchOptions);
+      ]
+    });
 
     const results = [];
     let totalSheetsSuccess = 0;
@@ -609,8 +589,8 @@ app.post('/analyze', async (req, res) => {
 // Export for Vercel
 module.exports = app;
 
-// Ensure Vercel uses Node 18 runtime for this function
-module.exports.config = { runtime: 'nodejs18.x' };
+// Ensure Vercel uses Node 22 runtime for this function
+module.exports.config = { runtime: 'nodejs22.x' };
 
 // Start server locally
 if (require.main === module) {
