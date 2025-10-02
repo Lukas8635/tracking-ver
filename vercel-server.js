@@ -1,8 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const puppeteer = require('puppeteer-core');
-const chromium = require('@sparticuz/chromium');
+const { chromium } = require('playwright');
 const { google } = require('googleapis');
 
 const app = express();
@@ -472,11 +471,10 @@ app.post('/analyze', async (req, res) => {
   }
 
   try {
-    // Launch browser with Vercel-compatible Chromium
-    const isProduction = process.env.NODE_ENV === 'production';
-    
-    const browser = await puppeteer.launch({
-      args: isProduction ? chromium.args : [
+    // Use Playwright with system browser (works better on Vercel)
+    const browser = await chromium.launch({
+      headless: true,
+      args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -488,11 +486,7 @@ app.post('/analyze', async (req, res) => {
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
         '--single-process'
-      ],
-      executablePath: isProduction ? await chromium.executablePath() : undefined,
-      headless: isProduction ? chromium.headless : true,
-      ignoreHTTPSErrors: true,
-      defaultViewport: { width: 1920, height: 1080 }
+      ]
     });
 
     const results = [];
