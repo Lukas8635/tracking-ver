@@ -11,10 +11,5 @@
     { "src": "/", "dest": "/vercel-server.js" },
     { "src": "/analyze", "dest": "/vercel-server.js" },
     { "src": "/(.*)", "dest": "/vercel-server.js" }
-  ],
-  "functions": {
-    "vercel-server.js": {
-      "runtime": "nodejs22.x"
-    }
-  }
+  ]
 }
