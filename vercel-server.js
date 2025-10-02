@@ -144,6 +144,42 @@ async function analyzeWebsite(website) {
     
     const html = response.data;
     const $ = cheerio.load(html);
+
+    // Helpers
+    const knownScriptHosts = [
+      'www.googletagmanager.com',
+      'www.google-analytics.com',
+      'google-analytics.com',
+      'www.gtagjs.com',
+      'consent.cookiebot.com',
+      'cdn.cookielaw.org', // OneTrust
+      'cdn.cookiebot.com',
+    ];
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+
+    function toAbsoluteUrl(base, maybeRelative) {
+      try {
+        if (!maybeRelative) return null;
+        if (maybeRelative.startsWith('//')) {
+          const baseUrl = new URL(base);
+          return `${baseUrl.protocol}${maybeRelative}`;
+        }
+        return new URL(maybeRelative, base).toString();
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function extractGa4IdsFrom(text) {
+      const ids = new Set();
+      if (!text) return ids;
+      const regex = /\bG-[A-Z0-9]{6,}\b/g;
+      let m;
+      while ((m = regex.exec(text)) !== null) {
+        ids.add(m[0]);
+      }
+      return ids;
+    }
     
     // Extract GTM IDs from script tags
     const gtmIds = new Set();
@@ -186,6 +222,55 @@ async function analyzeWebsite(website) {
       }
     });
     
+    // Also fetch external scripts for deeper inspection (limited to 10)
+    const externalScriptSrcs = [];
+    $('script[src]').each((i, el) => {
+      const abs = toAbsoluteUrl(website, $(el).attr('src'));
+      if (abs) externalScriptSrcs.push(abs);
+    });
+
+    const externalCandidates = externalScriptSrcs
+      .filter(u => {
+        try {
+          const host = new URL(u).host;
+          return knownScriptHosts.some(k => host.includes(k)) || /gtm\.js|gtag\/js/.test(u);
+        } catch (_) { return false; }
+      })
+      .slice(0, 10);
+
+    for (const scriptUrl of externalCandidates) {
+      try {
+        const { data: js } = await axios.get(scriptUrl, { timeout: 15000, headers: { 'User-Agent': userAgent } });
+        // Collect GA4 ids
+        const ids = extractGa4IdsFrom(js);
+        ids.forEach(id => ga4Ids.add(id));
+
+        // Improve consent tool detection
+        if (js.includes('Cookiebot')) consentTool = 'Cookiebot';
+        if (js.includes('OneTrust') || js.includes('Optanon')) consentTool = 'OneTrust';
+
+        networkRequests.push(scriptUrl);
+        if (scriptUrl.includes('googletagmanager.com')) summary.gtm++; else if (scriptUrl.includes('google-analytics')) summary.ga++; else summary.other++;
+      } catch (_) {
+        // ignore individual script failures
+      }
+    }
+
+    // If we found GTM IDs but did not fetch their container, try to fetch container JS
+    const gtmIdsArray = Array.from(gtmIds).slice(0, 3);
+    for (const id of gtmIdsArray) {
+      const containerUrl = `https://www.googletagmanager.com/gtm.js?id=${encodeURIComponent(id)}`;
+      try {
+        const { data: js } = await axios.get(containerUrl, { timeout: 15000, headers: { 'User-Agent': userAgent } });
+        const ids = extractGa4IdsFrom(js);
+        ids.forEach(mid => ga4Ids.add(mid));
+        networkRequests.push(containerUrl);
+        summary.gtm++;
+      } catch (_) {
+        // ignore fetch errors
+      }
+    }
+
     // Find dataLayer in script tags
     let dataLayerFound = false;
     $('script').each((i, script) => {
