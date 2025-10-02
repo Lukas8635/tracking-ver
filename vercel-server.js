@@ -47,25 +47,26 @@ let cachedSheetsClient = null;
 let headerInitialized = false;
 
 async function getSheetsClient() {
-  if (!config.googleSheets.enabled) return null;
+  if (!config.googleSheets || !config.googleSheets.enabled) return null;
   if (cachedSheetsClient) return cachedSheetsClient;
-  
+
   let auth;
   if (process.env.GOOGLE_SHEETS_CREDENTIALS) {
-    // Use environment variable credentials (base64 encoded)
+    // 1) Vercel env var (base64 JSON)
     const credentials = JSON.parse(Buffer.from(process.env.GOOGLE_SHEETS_CREDENTIALS, 'base64').toString());
-    auth = new google.auth.GoogleAuth({
-      credentials: credentials,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
+    auth = new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
+  } else if (config.googleSheets.credentialsBase64) {
+    // 2) Repo-configured base64 JSON (committed in code) – NOT SECURE but user requested
+    const credentials = JSON.parse(Buffer.from(String(config.googleSheets.credentialsBase64), 'base64').toString());
+    auth = new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
+  } else if (config.googleSheets.credentials && typeof config.googleSheets.credentials === 'object') {
+    // 3) Inline JSON object in config
+    auth = new google.auth.GoogleAuth({ credentials: config.googleSheets.credentials, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
   } else {
-    // Use file-based credentials (local development)
-    auth = new google.auth.GoogleAuth({
-      keyFile: config.googleSheets.credentialsFile,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
+    // 4) Fallback to file path in repo (for local dev)
+    auth = new google.auth.GoogleAuth({ keyFile: config.googleSheets.credentialsFile, scopes: ['https://www.googleapis.com/auth/spreadsheets'] });
   }
-  
+
   cachedSheetsClient = google.sheets({ version: 'v4', auth });
   return cachedSheetsClient;
 }
@@ -604,6 +605,9 @@ app.post('/analyze', async (req, res) => {
 
 // Export for Vercel
 module.exports = app;
+
+// Ensure Vercel uses Node 18 runtime for this function
+module.exports.config = { runtime: 'nodejs18.x' };
 
 // Start server locally
 if (require.main === module) {
