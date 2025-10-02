@@ -10,7 +10,8 @@
     "dev": "node web-server.js"
   },
   "dependencies": {
-    "puppeteer": "^22.6.0",
+    "puppeteer-core": "^22.6.0",
+    "@sparticuz/chromium": "^123.0.1",
     "googleapis": "^128.0.0",
     "google-auth-library": "^9.4.0",
     "express": "^4.18.2"
