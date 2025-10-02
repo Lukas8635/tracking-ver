@@ -7,7 +7,10 @@ const { google } = require('googleapis');
 // Import chromium only when needed
 let chromium;
 if (process.env.NODE_ENV === 'production') {
-  chromium = require('chrome-aws-lambda');
+  // Use Node 22 compatible Chromium in serverless
+  chromium = require('@sparticuz/chromium');
+  chromium.setHeadlessMode = true;
+  chromium.setGraphicsMode = false;
 }
 
 const app = express();
@@ -481,7 +484,7 @@ app.post('/analyze', async (req, res) => {
     const isProd = process.env.NODE_ENV === 'production' && chromium;
     const launchOptions = isProd ? {
       args: chromium.args,
-      executablePath: await chromium.executablePath,
+      executablePath: await chromium.executablePath(),
       headless: chromium.headless,
       ignoreHTTPSErrors: true,
       defaultViewport: { width: 1920, height: 1080 }
