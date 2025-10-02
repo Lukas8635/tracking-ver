@@ -4,26 +4,12 @@
     {
       "src": "vercel-server.js",
       "use": "@vercel/node",
-      "config": {
-        "maxDuration": 300
-      }
+      "config": { "maxDuration": 300 }
     }
   ],
-  "functions": {
-    "runtime": "nodejs18.x"
-  },
   "routes": [
-    {
-      "src": "/",
-      "dest": "/vercel-server.js"
-    },
-    {
-      "src": "/analyze",
-      "dest": "/vercel-server.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/vercel-server.js"
-    }
+    { "src": "/", "dest": "/vercel-server.js" },
+    { "src": "/analyze", "dest": "/vercel-server.js" },
+    { "src": "/(.*)", "dest": "/vercel-server.js" }
   ]
 }
