@@ -19,4 +19,8 @@
   "keywords": ["gtm", "ga4", "analytics", "tracking", "google-sheets"],
   "author": "Your Name",
   "license": "MIT"
+,
+  "engines": {
+    "node": "18.x"
+  }
 }
