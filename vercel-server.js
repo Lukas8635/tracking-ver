@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { chromium } = require('playwright');
+const puppeteer = require('puppeteer');
 const { google } = require('googleapis');
 
 const app = express();
@@ -471,8 +471,8 @@ app.post('/analyze', async (req, res) => {
   }
 
   try {
-    // Use Playwright with system browser (works better on Vercel)
-    const browser = await chromium.launch({
+    // Use Puppeteer with system Chrome (most reliable on Vercel)
+    const browser = await puppeteer.launch({
       headless: true,
       args: [
         '--no-sandbox',
