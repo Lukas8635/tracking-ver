@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { chromium } = require('playwright');
+const puppeteer = require('puppeteer');
 const { google } = require('googleapis');
 
 const app = express();
@@ -126,7 +126,7 @@ async function appendResultRow(result) {
   });
 }
 
-// Analysis function using Playwright
+// Analysis function using Puppeteer
 async function analyzeWebsite(browser, website) {
   console.log(`\n${'='.repeat(80)}`);
   console.log(`🔍 ANALYZING: ${website}`);
@@ -471,8 +471,8 @@ app.post('/analyze', async (req, res) => {
   }
 
   try {
-    // Launch browser with Playwright (works better on Vercel)
-    const browser = await chromium.launch({
+    // Launch browser with Puppeteer (includes Chromium)
+    const browser = await puppeteer.launch({
       headless: true,
       args: [
         '--no-sandbox',
