@@ -134,32 +134,40 @@ async function analyzeWebsite(website) {
   console.log(`${'='.repeat(80)}`);
   
   const isProd = process.env.NODE_ENV === 'production';
-  if (isProd) {
-    chromium.setHeadlessMode = true;
-    chromium.setGraphicsMode = false;
+  const wsEndpoint = process.env.BROWSER_WS_ENDPOINT || process.env.BROWSERLESS_WS;
+
+  let browser;
+  if (wsEndpoint) {
+    // Connect to a remote browser (e.g., Browserless)
+    browser = await puppeteer.connect({ browserWSEndpoint: wsEndpoint });
+  } else {
+    if (isProd) {
+      chromium.setHeadlessMode = true;
+      chromium.setGraphicsMode = false;
+    }
+    browser = await puppeteer.launch(
+      isProd
+        ? {
+            args: chromium.args,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+            ignoreHTTPSErrors: true,
+          }
+        : {
+            headless: true,
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-accelerated-2d-canvas',
+              '--no-first-run',
+              '--no-zygote',
+              '--disable-gpu'
+            ],
+            ignoreHTTPSErrors: true,
+          }
+    );
   }
-  const browser = await puppeteer.launch(
-    isProd
-      ? {
-          args: chromium.args,
-          executablePath: await chromium.executablePath(),
-          headless: chromium.headless,
-          ignoreHTTPSErrors: true,
-        }
-      : {
-          headless: true,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu'
-          ],
-          ignoreHTTPSErrors: true,
-        }
-  );
   
   const page = await browser.newPage();
   
