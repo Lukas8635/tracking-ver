@@ -452,10 +452,22 @@ app.post('/analyze', async (req, res) => {
         
       } catch (error) {
         console.error(`❌ Error analyzing ${url}:`, error.message);
+        // Return a safe analysis object to prevent UI null errors
         results.push({
           website: url,
           error: error.message,
-          analysis: null,
+          analysis: {
+            gtmContainers: 0,
+            gtmIds: [],
+            ga4Ids: [],
+            consentMode: { detected: false, version: 'Unknown', tool: 'Unknown' },
+            trackingType: 'Unknown',
+            gtmLoadedInitially: false,
+            gaCookielessHits: false,
+            networkRequests: 0,
+            summary: { gtm: 0, ga: 0, other: 0 },
+            consentToolStates: { tool: 'Unknown', states: {}, rawData: null }
+          },
           googleSheets: {
             enabled: config.googleSheets.enabled,
             success: false,
