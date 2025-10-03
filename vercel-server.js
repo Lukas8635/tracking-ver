@@ -1,8 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const axios = require('axios');
-const cheerio = require('cheerio');
+const { chromium } = require('playwright');
 const { google } = require('googleapis');
 
 const app = express();
@@ -127,339 +126,242 @@ async function appendResultRow(result) {
   });
 }
 
-// Analysis function using HTTP requests (no browser needed!)
+// Analysis function using Playwright (real browser simulation)
 async function analyzeWebsite(website) {
   console.log(`\n${'='.repeat(80)}`);
   console.log(`🔍 ANALYZING: ${website}`);
   console.log(`${'='.repeat(80)}`);
   
-  try {
-    // Fetch the website HTML
-    const response = await axios.get(website, {
-      timeout: config.analysis.timeout,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
-    });
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-gpu',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--single-process'
+    ]
+  });
+  
+  const page = await browser.newPage();
+  
+  // Monitor network requests
+  const networkRequests = [];
+  const summary = { gtm: 0, ga: 0, other: 0 };
+  const gtmIds = new Set();
+  const ga4Ids = new Set();
+  
+  page.on('request', request => {
+    const url = request.url();
+    networkRequests.push(url);
     
-    const html = response.data;
-    const $ = cheerio.load(html);
-
-    // Helpers
-    const knownScriptHosts = [
-      'www.googletagmanager.com',
-      'www.google-analytics.com',
-      'google-analytics.com',
-      'www.gtagjs.com',
-      'consent.cookiebot.com',
-      'cdn.cookielaw.org', // OneTrust
-      'cdn.cookiebot.com',
-      'cookiebot.com',
-      'onetrust.com',
-      'trustarc.com',
-      'quantcast.com',
-      'googletagservices.com',
-      'doubleclick.net',
-      'googleadservices.com',
-      'googlesyndication.com'
-    ];
-    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
-
-    function toAbsoluteUrl(base, maybeRelative) {
-      try {
-        if (!maybeRelative) return null;
-        if (maybeRelative.startsWith('//')) {
-          const baseUrl = new URL(base);
-          return `${baseUrl.protocol}${maybeRelative}`;
-        }
-        return new URL(maybeRelative, base).toString();
-      } catch (_) {
-        return null;
+    if (url.includes('googletagmanager.com')) {
+      summary.gtm++;
+      
+      const gtmMatch1 = url.match(/[?&]id=(GTM-[A-Z0-9]+)/i);
+      const gtmMatch2 = url.match(/\/gtm\.js\?id=(GTM-[A-Z0-9]+)/i);
+      const gtmMatch3 = url.match(/(GTM-[A-Z0-9]+)/g);
+      
+      if (gtmMatch1) gtmIds.add(gtmMatch1[1]);
+      if (gtmMatch2) gtmIds.add(gtmMatch2[1]);
+      if (gtmMatch3) {
+        gtmMatch3.forEach(id => {
+          if (id.startsWith('GTM-')) gtmIds.add(id);
+        });
       }
+      
+      const ga4FromGtmMatch = url.match(/[?&]id=(G-[A-Z0-9]+)/i);
+      if (ga4FromGtmMatch) ga4Ids.add(ga4FromGtmMatch[1]);
+    } 
+    else if (url.includes('google-analytics.com')) {
+      summary.ga++;
+      
+      const ga4Match = url.match(/[?&]tid=(G-[A-Z0-9]+)/i);
+      if (ga4Match) ga4Ids.add(ga4Match[1]);
     }
-
-    function extractGa4IdsFrom(text) {
-      const ids = new Set();
-      if (!text) return ids;
-      const regex = /\bG-[A-Z0-9]{6,}\b/g;
-      let m;
-      while ((m = regex.exec(text)) !== null) {
-        ids.add(m[0]);
-      }
-      return ids;
-    }
-
-    function detectConsentModeInText(text) {
-      if (!text) return { detected: false, version: "Unknown" };
-      
-      // Look for consent mode signals
-      if (text.includes('gcs=G100') || text.includes('gcs=G110')) {
-        return { detected: true, version: "v2" };
-      } else if (text.includes('gcs=')) {
-        return { detected: true, version: "v1" };
-      }
-      
-      // Look for consent mode API calls
-      if (text.includes('gtag(\'consent\',') || text.includes('gtag("consent",')) {
-        return { detected: true, version: "API" };
-      }
-      
-      return { detected: false, version: "Unknown" };
-    }
-
-    function detectConsentToolInText(text) {
-      if (!text) return "Unknown";
-      
-      if (text.includes('Cookiebot') || text.includes('cookiebot')) return "Cookiebot";
-      if (text.includes('OneTrust') || text.includes('Optanon')) return "OneTrust";
-      if (text.includes('TrustArc')) return "TrustArc";
-      if (text.includes('Quantcast')) return "Quantcast";
-      if (text.includes('CookieYes')) return "CookieYes";
-      if (text.includes('CookiePro')) return "CookiePro";
-      
-      return "Unknown";
-    }
-    
-    // Extract GTM IDs from script tags
-    const gtmIds = new Set();
-    const ga4Ids = new Set();
-    const networkRequests = [];
-    const summary = { gtm: 0, ga: 0, other: 0 };
-    
-    // Find GTM scripts
-    $('script').each((i, script) => {
-      const src = $(script).attr('src') || '';
-      const content = $(script).html() || '';
-      
-      // GTM script detection
-      if (src.includes('googletagmanager.com/gtm.js')) {
-        summary.gtm++;
-        networkRequests.push(src);
-        
-        const gtmMatch = src.match(/id=(GTM-[A-Z0-9]+)/i);
-        if (gtmMatch) gtmIds.add(gtmMatch[1]);
-      }
-      
-      // GA4 script detection
-      if (src.includes('googletagmanager.com/gtag/js')) {
+    else if (url.includes('/g/collect') || url.includes('analytics.') || url.match(/[?&]tid=(G-[A-Z0-9]+)/)) {
+      const ga4Match = url.match(/[?&]tid=(G-[A-Z0-9]+)/i);
+      if (ga4Match) {
         summary.ga++;
-        networkRequests.push(src);
-        
-        const ga4Match = src.match(/id=(G-[A-Z0-9]+)/i);
-        if (ga4Match) ga4Ids.add(ga4Match[1]);
+        ga4Ids.add(ga4Match[1]);
+      } else {
+        summary.other++;
       }
-      
-      // Extract IDs from inline scripts
-      const gtmMatches = content.match(/GTM-[A-Z0-9]+/g);
-      if (gtmMatches) {
-        gtmMatches.forEach(id => gtmIds.add(id));
-      }
-      
-      const ga4Matches = content.match(/G-[A-Z0-9]+/g);
-      if (ga4Matches) {
-        ga4Matches.forEach(id => ga4Ids.add(id));
-      }
+    }
+    else {
+      summary.other++;
+    }
+  });
+  
+  try {
+    await page.goto(website, { 
+      waitUntil: 'load', 
+      timeout: config.analysis.timeout
     });
     
-    // Also fetch external scripts for deeper inspection (increased to 20)
-    const externalScriptSrcs = [];
-    $('script[src]').each((i, el) => {
-      const abs = toAbsoluteUrl(website, $(el).attr('src'));
-      if (abs) externalScriptSrcs.push(abs);
-    });
-
-    // Also check for iframe sources that might contain tracking
-    $('iframe[src]').each((i, el) => {
-      const abs = toAbsoluteUrl(website, $(el).attr('src'));
-      if (abs) externalScriptSrcs.push(abs);
-    });
-
-    const externalCandidates = externalScriptSrcs
-      .filter(u => {
-        try {
-          const host = new URL(u).host;
-          return knownScriptHosts.some(k => host.includes(k)) || 
-                 /gtm\.js|gtag\/js|analytics|tracking|consent|cookie/.test(u);
-        } catch (_) { return false; }
-      })
-      .slice(0, 20);
-
-    // Track consent mode and tool detection across all scripts
-    let consentModeFromScripts = { detected: false, version: "Unknown" };
-    let consentToolFromScripts = "Unknown";
-
-    for (const scriptUrl of externalCandidates) {
-      try {
-        const { data: js } = await axios.get(scriptUrl, { timeout: 15000, headers: { 'User-Agent': userAgent } });
-        
-        // Collect GA4 ids
-        const ids = extractGa4IdsFrom(js);
-        ids.forEach(id => ga4Ids.add(id));
-
-        // Detect consent mode in this script
-        const consentMode = detectConsentModeInText(js);
-        if (consentMode.detected && !consentModeFromScripts.detected) {
-          consentModeFromScripts = consentMode;
-        }
-
-        // Detect consent tool in this script
-        const tool = detectConsentToolInText(js);
-        if (tool !== "Unknown" && consentToolFromScripts === "Unknown") {
-          consentToolFromScripts = tool;
-        }
-
-        networkRequests.push(scriptUrl);
-        if (scriptUrl.includes('googletagmanager.com')) summary.gtm++; 
-        else if (scriptUrl.includes('google-analytics')) summary.ga++; 
-        else summary.other++;
-      } catch (_) {
-        // ignore individual script failures
-      }
-    }
-
-    // If we found GTM IDs but did not fetch their container, try to fetch container JS
-    const gtmIdsArray = Array.from(gtmIds).slice(0, 3);
-    for (const id of gtmIdsArray) {
-      const containerUrl = `https://www.googletagmanager.com/gtm.js?id=${encodeURIComponent(id)}`;
-      try {
-        const { data: js } = await axios.get(containerUrl, { timeout: 15000, headers: { 'User-Agent': userAgent } });
-        const ids = extractGa4IdsFrom(js);
-        ids.forEach(mid => ga4Ids.add(mid));
-        
-        // Also check for consent mode in GTM container
-        const consentMode = detectConsentModeInText(js);
-        if (consentMode.detected && !consentModeFromScripts.detected) {
-          consentModeFromScripts = consentMode;
-        }
-        
-        networkRequests.push(containerUrl);
-        summary.gtm++;
-      } catch (_) {
-        // ignore fetch errors
-      }
-    }
-
-    // Also try to fetch common consent tool scripts if we haven't found them yet
-    if (consentToolFromScripts === "Unknown") {
-      const commonConsentScripts = [
-        'https://consent.cookiebot.com/uc.js',
-        'https://cdn.cookiebot.com/uc.js',
-        'https://cdn.cookielaw.org/scripttemplates/otSDKStub.js'
-      ];
+    await page.waitForTimeout(3000);
+    
+    // Simulate human behavior
+    await page.evaluate(() => window.scrollTo(0, 500));
+    await page.waitForTimeout(2000);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(2000);
+    
+    await page.waitForTimeout(config.analysis.waitTime);
+    
+    // Extract additional GTM IDs from page content
+    const gtmFromWindow = await page.evaluate(() => {
+      const foundIds = new Set();
       
-      for (const scriptUrl of commonConsentScripts) {
-        try {
-          const { data: js } = await axios.get(scriptUrl, { timeout: 10000, headers: { 'User-Agent': userAgent } });
-          const tool = detectConsentToolInText(js);
-          if (tool !== "Unknown") {
-            consentToolFromScripts = tool;
-            networkRequests.push(scriptUrl);
-            summary.other++;
-            break;
+      if (window.google_tag_manager) {
+        Object.keys(window.google_tag_manager).forEach(key => {
+          if (key.match(/GTM-[A-Z0-9]+/)) foundIds.add(key);
+        });
+      }
+      
+      if (window.dataLayer) {
+        const dataLayerString = JSON.stringify(window.dataLayer);
+        const gtmMatches = dataLayerString.match(/GTM-[A-Z0-9]+/g);
+        if (gtmMatches) gtmMatches.forEach(id => foundIds.add(id));
+      }
+      
+      return Array.from(foundIds);
+    });
+    
+    if (gtmFromWindow.length > 0) {
+      gtmFromWindow.forEach(id => gtmIds.add(id));
+    }
+
+    // Check consent tool states
+    let consentToolStates = { tool: 'Unknown', states: {}, rawData: null };
+    try {
+      consentToolStates = await page.evaluate(() => {
+        const result = { tool: 'Unknown', states: {}, rawData: null };
+
+        if (typeof window.Cookiebot !== 'undefined') {
+          result.tool = 'Cookiebot';
+          try {
+            const consent = window.Cookiebot.consent;
+            result.states = {
+              necessary: consent.necessary || false,
+              preferences: consent.preferences || false,
+              statistics: consent.statistics || false,
+              marketing: consent.marketing || false
+            };
+          } catch (e) {
+            result.states = { error: e.message };
           }
-        } catch (_) {
-          // ignore fetch errors
         }
-      }
-    }
+        else if (typeof window.OnetrustActiveGroups !== 'undefined' || typeof window.OneTrust !== 'undefined') {
+          result.tool = 'OneTrust';
+          try {
+            const activeGroups = window.OnetrustActiveGroups || '';
+            result.states = {
+              strictly_necessary: activeGroups.includes('C0001'),
+              performance: activeGroups.includes('C0002'),
+              functional: activeGroups.includes('C0003'),
+              targeting: activeGroups.includes('C0004')
+            };
+          } catch (e) {
+            result.states = { error: e.message };
+          }
+        }
 
-    // Find dataLayer in script tags
-    let dataLayerFound = false;
-    $('script').each((i, script) => {
-      const content = $(script).html() || '';
-      if (content.includes('dataLayer') || content.includes('gtag')) {
-        dataLayerFound = true;
-        
-        // Extract more GTM/GA4 IDs from dataLayer
-        const gtmMatches = content.match(/GTM-[A-Z0-9]+/g);
-        if (gtmMatches) {
-          gtmMatches.forEach(id => gtmIds.add(id));
-        }
-        
-        const ga4Matches = content.match(/G-[A-Z0-9]+/g);
-        if (ga4Matches) {
-          ga4Matches.forEach(id => ga4Ids.add(id));
-        }
-      }
-    });
-    
-    // Detect consent tools (combine HTML and script analysis)
-    let consentTool = "Unknown";
-    if (html.includes('cookiebot.com')) {
-      consentTool = "Cookiebot";
-    } else if (html.includes('onetrust.com')) {
-      consentTool = "OneTrust";
-    } else if (html.includes('trustarc.com')) {
-      consentTool = "TrustArc";
-    } else if (html.includes('quantcast.mgr')) {
-      consentTool = "Quantcast";
+        return result;
+      });
+    } catch (e) {
+      // Ignore consent errors
     }
-    
-    // Use script analysis if HTML didn't find anything
-    if (consentTool === "Unknown" && consentToolFromScripts !== "Unknown") {
-      consentTool = consentToolFromScripts;
-    }
-    
-    // Detect consent mode (combine HTML and script analysis)
-    let consentModeDetected = false;
-    let consentModeVersion = "Unknown";
-    if (html.includes('gcs=G100') || html.includes('gcs=G110')) {
-      consentModeDetected = true;
-      consentModeVersion = "v2";
-    } else if (html.includes('gcs=')) {
-      consentModeDetected = true;
-      consentModeVersion = "v1";
-    }
-    
-    // Use script analysis if HTML didn't find anything
-    if (!consentModeDetected && consentModeFromScripts.detected) {
-      consentModeDetected = consentModeFromScripts.detected;
-      consentModeVersion = consentModeFromScripts.version;
-    }
-    
-    // Determine tracking type
-    let trackingType = "Unknown";
-    if (networkRequests.some(url => url.includes('googletagmanager.com/gtm.js'))) {
-      trackingType = "GTM (client-side)";
-    } else if (networkRequests.some(url => url.includes('googletagmanager.com/gtag/js'))) {
-      trackingType = "GA4 gtag.js (client-side)";
-    } else if (ga4Ids.size > 0) {
-      trackingType = "GA4 (detected in scripts)";
-    } else if (gtmIds.size > 0) {
-      trackingType = "GTM (detected in scripts)";
-    } else {
-      trackingType = "No tracking detected";
-    }
-    
-    const gtmLoadedInitially = networkRequests.some(url => url.includes('googletagmanager.com/gtm.js'));
-    const gaCookielessHits = false; // Can't detect this without browser
-    
-    return {
-      website,
-      summary,
-      gtmIds: Array.from(gtmIds),
-      ga4Ids: Array.from(ga4Ids),
-      consentMode: {
-        detected: consentModeDetected,
-        version: consentModeVersion,
-        tool: consentTool,
-        states: {}
-      },
-      consentToolStates: { tool: consentTool, states: {}, rawData: null },
-      trackingType,
-      gtmLoadedInitially,
-      gaCookielessHits,
-      networkRequests: networkRequests.length,
-      error: null
-    };
-    
+     
   } catch (error) {
+    await browser.close();
     return {
       website,
       error: error.message,
       summary: null
     };
   }
+
+  const gtmLoadedInitially = networkRequests.some(url => url.includes('googletagmanager.com/gtm.js'));
+  const gaCookielessHits = networkRequests.some(url => url.includes('google-analytics.com') && url.includes('gcs=G100'));
+
+  // Consent Mode detection
+  let consentModeDetected = false;
+  let consentModeVersion = "Unknown";
+  let consentTool = "Unknown";
+
+  for (const url of networkRequests) {
+    if (url.includes('gcs=G100') || url.includes('gcs=G110')) {
+      consentModeDetected = true;
+      consentModeVersion = "v2";
+      break;
+    } else if (url.includes('gcs=')) {
+      consentModeDetected = true;
+      consentModeVersion = "v1";
+      break;
+    }
+  }
+
+  // Detect consent tool
+  const pageContent = await page.content();
+  if (pageContent && pageContent.includes('cookiebot.com')) {
+    consentTool = "Cookiebot";
+  } else if (pageContent && pageContent.includes('onetrust.com')) {
+    consentTool = "OneTrust";
+  } else if (pageContent && pageContent.includes('trustarc.com')) {
+    consentTool = "TrustArc";
+  } else if (pageContent && pageContent.includes('quantcast.mgr')) {
+    consentTool = "Quantcast";
+  }
+
+  // Determine tracking type
+  let trackingType = "Unknown";
+  const hasCustomAnalytics = networkRequests.some(url => 
+    (url.includes('/g/collect') && !url.includes('google-analytics.com')) || 
+    url.includes('analytics.') || 
+    (url.match(/[?&]tid=(G-[A-Z0-9]+)/) && !url.includes('google-analytics.com'))
+  );
+  
+  if (networkRequests.some(url => url.includes('googletagmanager.com/gtm.js'))) {
+    trackingType = "GTM (client-side)";
+  } else if (hasCustomAnalytics && ga4Ids.size > 0) {
+    trackingType = "GA4 Server-Side (custom endpoint)";
+  } else if (networkRequests.some(url => url.includes('googletagmanager.com/gtag/js')) && ga4Ids.size > 0) {
+    trackingType = "GA4 gtag.js (client-side)";
+  } else if (networkRequests.some(url => url.includes('google-analytics.com'))) {
+    trackingType = "Google Analytics (client-side)";
+  } else if (summary.gtm === 0 && summary.ga === 0 && ga4Ids.size === 0) {
+    trackingType = "Possibly server-side (no GTM/GA requests detected)";
+  } else if (ga4Ids.size > 0 && summary.ga === 0) {
+    trackingType = "GA4 loaded but consent-blocked";
+  }
+
+  await browser.close();
+
+  return {
+    website,
+    summary,
+    gtmIds: Array.from(gtmIds),
+    ga4Ids: Array.from(ga4Ids),
+    consentMode: {
+      detected: consentModeDetected,
+      version: consentModeVersion,
+      tool: consentTool,
+      states: {}
+    },
+    consentToolStates: consentToolStates,
+    trackingType,
+    gtmLoadedInitially,
+    gaCookielessHits,
+    networkRequests: networkRequests.length,
+    error: null
+  };
 }
 
 // Routes
@@ -493,8 +395,8 @@ app.post('/analyze', async (req, res) => {
     let totalSheetsSuccess = 0;
     let totalSheetsErrors = 0;
 
-    // Analyze each website (limit to 5 for HTTP requests - much faster!)
-    const urlsToProcess = urls.slice(0, 5);
+    // Analyze each website (limit to 3 for browser - slower but more accurate)
+    const urlsToProcess = urls.slice(0, 3);
     
     for (let i = 0; i < urlsToProcess.length; i++) {
       const url = urlsToProcess[i];
