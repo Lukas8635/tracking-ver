@@ -154,6 +154,14 @@ async function analyzeWebsite(website) {
       'consent.cookiebot.com',
       'cdn.cookielaw.org', // OneTrust
       'cdn.cookiebot.com',
+      'cookiebot.com',
+      'onetrust.com',
+      'trustarc.com',
+      'quantcast.com',
+      'googletagservices.com',
+      'doubleclick.net',
+      'googleadservices.com',
+      'googlesyndication.com'
     ];
     const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
@@ -179,6 +187,37 @@ async function analyzeWebsite(website) {
         ids.add(m[0]);
       }
       return ids;
+    }
+
+    function detectConsentModeInText(text) {
+      if (!text) return { detected: false, version: "Unknown" };
+      
+      // Look for consent mode signals
+      if (text.includes('gcs=G100') || text.includes('gcs=G110')) {
+        return { detected: true, version: "v2" };
+      } else if (text.includes('gcs=')) {
+        return { detected: true, version: "v1" };
+      }
+      
+      // Look for consent mode API calls
+      if (text.includes('gtag(\'consent\',') || text.includes('gtag("consent",')) {
+        return { detected: true, version: "API" };
+      }
+      
+      return { detected: false, version: "Unknown" };
+    }
+
+    function detectConsentToolInText(text) {
+      if (!text) return "Unknown";
+      
+      if (text.includes('Cookiebot') || text.includes('cookiebot')) return "Cookiebot";
+      if (text.includes('OneTrust') || text.includes('Optanon')) return "OneTrust";
+      if (text.includes('TrustArc')) return "TrustArc";
+      if (text.includes('Quantcast')) return "Quantcast";
+      if (text.includes('CookieYes')) return "CookieYes";
+      if (text.includes('CookiePro')) return "CookiePro";
+      
+      return "Unknown";
     }
     
     // Extract GTM IDs from script tags
@@ -222,9 +261,15 @@ async function analyzeWebsite(website) {
       }
     });
     
-    // Also fetch external scripts for deeper inspection (limited to 10)
+    // Also fetch external scripts for deeper inspection (increased to 20)
     const externalScriptSrcs = [];
     $('script[src]').each((i, el) => {
+      const abs = toAbsoluteUrl(website, $(el).attr('src'));
+      if (abs) externalScriptSrcs.push(abs);
+    });
+
+    // Also check for iframe sources that might contain tracking
+    $('iframe[src]').each((i, el) => {
       const abs = toAbsoluteUrl(website, $(el).attr('src'));
       if (abs) externalScriptSrcs.push(abs);
     });
@@ -233,24 +278,40 @@ async function analyzeWebsite(website) {
       .filter(u => {
         try {
           const host = new URL(u).host;
-          return knownScriptHosts.some(k => host.includes(k)) || /gtm\.js|gtag\/js/.test(u);
+          return knownScriptHosts.some(k => host.includes(k)) || 
+                 /gtm\.js|gtag\/js|analytics|tracking|consent|cookie/.test(u);
         } catch (_) { return false; }
       })
-      .slice(0, 10);
+      .slice(0, 20);
+
+    // Track consent mode and tool detection across all scripts
+    let consentModeFromScripts = { detected: false, version: "Unknown" };
+    let consentToolFromScripts = "Unknown";
 
     for (const scriptUrl of externalCandidates) {
       try {
         const { data: js } = await axios.get(scriptUrl, { timeout: 15000, headers: { 'User-Agent': userAgent } });
+        
         // Collect GA4 ids
         const ids = extractGa4IdsFrom(js);
         ids.forEach(id => ga4Ids.add(id));
 
-        // Improve consent tool detection
-        if (js.includes('Cookiebot')) consentTool = 'Cookiebot';
-        if (js.includes('OneTrust') || js.includes('Optanon')) consentTool = 'OneTrust';
+        // Detect consent mode in this script
+        const consentMode = detectConsentModeInText(js);
+        if (consentMode.detected && !consentModeFromScripts.detected) {
+          consentModeFromScripts = consentMode;
+        }
+
+        // Detect consent tool in this script
+        const tool = detectConsentToolInText(js);
+        if (tool !== "Unknown" && consentToolFromScripts === "Unknown") {
+          consentToolFromScripts = tool;
+        }
 
         networkRequests.push(scriptUrl);
-        if (scriptUrl.includes('googletagmanager.com')) summary.gtm++; else if (scriptUrl.includes('google-analytics')) summary.ga++; else summary.other++;
+        if (scriptUrl.includes('googletagmanager.com')) summary.gtm++; 
+        else if (scriptUrl.includes('google-analytics')) summary.ga++; 
+        else summary.other++;
       } catch (_) {
         // ignore individual script failures
       }
@@ -264,10 +325,41 @@ async function analyzeWebsite(website) {
         const { data: js } = await axios.get(containerUrl, { timeout: 15000, headers: { 'User-Agent': userAgent } });
         const ids = extractGa4IdsFrom(js);
         ids.forEach(mid => ga4Ids.add(mid));
+        
+        // Also check for consent mode in GTM container
+        const consentMode = detectConsentModeInText(js);
+        if (consentMode.detected && !consentModeFromScripts.detected) {
+          consentModeFromScripts = consentMode;
+        }
+        
         networkRequests.push(containerUrl);
         summary.gtm++;
       } catch (_) {
         // ignore fetch errors
+      }
+    }
+
+    // Also try to fetch common consent tool scripts if we haven't found them yet
+    if (consentToolFromScripts === "Unknown") {
+      const commonConsentScripts = [
+        'https://consent.cookiebot.com/uc.js',
+        'https://cdn.cookiebot.com/uc.js',
+        'https://cdn.cookielaw.org/scripttemplates/otSDKStub.js'
+      ];
+      
+      for (const scriptUrl of commonConsentScripts) {
+        try {
+          const { data: js } = await axios.get(scriptUrl, { timeout: 10000, headers: { 'User-Agent': userAgent } });
+          const tool = detectConsentToolInText(js);
+          if (tool !== "Unknown") {
+            consentToolFromScripts = tool;
+            networkRequests.push(scriptUrl);
+            summary.other++;
+            break;
+          }
+        } catch (_) {
+          // ignore fetch errors
+        }
       }
     }
 
@@ -291,7 +383,7 @@ async function analyzeWebsite(website) {
       }
     });
     
-    // Detect consent tools
+    // Detect consent tools (combine HTML and script analysis)
     let consentTool = "Unknown";
     if (html.includes('cookiebot.com')) {
       consentTool = "Cookiebot";
@@ -303,7 +395,12 @@ async function analyzeWebsite(website) {
       consentTool = "Quantcast";
     }
     
-    // Detect consent mode
+    // Use script analysis if HTML didn't find anything
+    if (consentTool === "Unknown" && consentToolFromScripts !== "Unknown") {
+      consentTool = consentToolFromScripts;
+    }
+    
+    // Detect consent mode (combine HTML and script analysis)
     let consentModeDetected = false;
     let consentModeVersion = "Unknown";
     if (html.includes('gcs=G100') || html.includes('gcs=G110')) {
@@ -312,6 +409,12 @@ async function analyzeWebsite(website) {
     } else if (html.includes('gcs=')) {
       consentModeDetected = true;
       consentModeVersion = "v1";
+    }
+    
+    // Use script analysis if HTML didn't find anything
+    if (!consentModeDetected && consentModeFromScripts.detected) {
+      consentModeDetected = consentModeFromScripts.detected;
+      consentModeVersion = consentModeFromScripts.version;
     }
     
     // Determine tracking type
