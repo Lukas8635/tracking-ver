@@ -1,12 +1,18 @@
 {
   "version": 2,
-  "functions": {
-    "vercel-server.js": {
-      "runtime": "nodejs22.x",
-      "maxDuration": 300,
-      "includedFiles": "node_modules/playwright-core/**"
+  "builds": [
+    {
+      "src": "vercel-server.js",
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 300,
+        "includeFiles": [
+          "node_modules/playwright-core/**",
+          "node_modules/@playwright/**"
+        ]
+      }
     }
-  },
+  ],
   "routes": [
     { "src": "/", "dest": "/vercel-server.js" },
     { "src": "/analyze", "dest": "/vercel-server.js" },
