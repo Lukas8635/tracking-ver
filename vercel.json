@@ -1,17 +1,7 @@
 {
   "version": 2,
   "builds": [
-    {
-      "src": "vercel-server.js",
-      "use": "@vercel/node",
-      "config": {
-        "maxDuration": 300,
-        "includeFiles": [
-          "node_modules/playwright-core/**",
-          "node_modules/@playwright/**"
-        ]
-      }
-    }
+    { "src": "vercel-server.js", "use": "@vercel/node", "config": { "maxDuration": 300 } }
   ],
   "routes": [
     { "src": "/", "dest": "/vercel-server.js" },

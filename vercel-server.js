@@ -1,7 +1,8 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { chromium } = require('playwright');
+const puppeteer = require('puppeteer-core');
+const chromium = require('@sparticuz/chromium');
 const { google } = require('googleapis');
 
 const app = express();
@@ -126,28 +127,39 @@ async function appendResultRow(result) {
   });
 }
 
-// Analysis function using Playwright (real browser simulation)
+// Analysis function using Puppeteer + Sparticuz Chromium in production
 async function analyzeWebsite(website) {
   console.log(`\n${'='.repeat(80)}`);
   console.log(`🔍 ANALYZING: ${website}`);
   console.log(`${'='.repeat(80)}`);
   
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--single-process'
-    ]
-  });
+  const isProd = process.env.NODE_ENV === 'production';
+  if (isProd) {
+    chromium.setHeadlessMode = true;
+    chromium.setGraphicsMode = false;
+  }
+  const browser = await puppeteer.launch(
+    isProd
+      ? {
+          args: chromium.args,
+          executablePath: await chromium.executablePath(),
+          headless: chromium.headless,
+          ignoreHTTPSErrors: true,
+        }
+      : {
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+          ],
+          ignoreHTTPSErrors: true,
+        }
+  );
   
   const page = await browser.newPage();
   
